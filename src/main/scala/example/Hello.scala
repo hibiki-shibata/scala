@@ -13,6 +13,11 @@ import spray.json._
 import java.time.{DayOfWeek, ZonedDateTime}
 import java.time.format.DateTimeFormatter
 
+import java.time.format.DateTimeFormatter
+import java.time.ZonedDateTime
+import spray.json._
+import DefaultJsonProtocol._
+
 
 class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItems: Int, deliveryTime: ZonedDateTime) {
   private val SmallOrderThreshold = 1000
@@ -66,7 +71,7 @@ final case class DeliveryResponse(delivery_fee: Int)
 
 trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
   implicit object ZonedDateTimeFormat extends JsonFormat[ZonedDateTime] {
-    private val pattern = "yyyy-MM-dd'T'HH:mm:ss.SSZ"
+    private val pattern = "yyyy-MM-dd'T'HH:mm:ssX"
     private val formatter = DateTimeFormatter.ofPattern(pattern)
 
     def write(obj: ZonedDateTime): JsValue = JsString(formatter.format(obj))
