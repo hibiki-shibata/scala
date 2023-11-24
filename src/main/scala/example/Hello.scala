@@ -1,15 +1,18 @@
-import akka.actor.ActorSystem
+import akka.actor.typed.ActorSystem
+import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes}
+import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
-import akka.stream.ActorMaterializer
-import spray.json.DefaultJsonProtocol
+import akka.http.scaladsl.server.Route.seal
+import scala.io.StdIn
 
+
+import akka.http.scaladsl.server.Directives
+import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
+import spray.json._
 import java.time.{DayOfWeek, ZonedDateTime}
+import java.time.format.DateTimeFormatter
 
-case class DeliveryRequest(cart_value: Int, delivery_distance: Int, number_of_items: Int, time: ZonedDateTime)
-
-case class DeliveryResponse(delivery_fee: Int)
 
 class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItems: Int, deliveryTime: ZonedDateTime) {
   private val SmallOrderThreshold = 1000
@@ -57,41 +60,59 @@ class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItem
   }
 }
 
-object DeliveryJsonProtocol extends DefaultJsonProtocol {
-  implicit val requestFormat = jsonFormat4(DeliveryRequest)
-  implicit val responseFormat = jsonFormat1(DeliveryResponse)
+final case class DeliveryRequest(cart_value: Int, delivery_distance: Int, number_of_items: Int, time: ZonedDateTime)
+final case class DeliveryResponse(delivery_fee: Int)
+
+
+trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
+  implicit object ZonedDateTimeFormat extends JsonFormat[ZonedDateTime] {
+    private val pattern = "yyyy-MM-dd'T'HH:mm:ss.SSZ"
+    private val formatter = DateTimeFormatter.ofPattern(pattern)
+
+    def write(obj: ZonedDateTime): JsValue = JsString(formatter.format(obj))
+    def read(json: JsValue): ZonedDateTime = json match {
+      case JsString(s) => ZonedDateTime.parse(s, formatter)
+      case _ => deserializationError("Expected ZonedDateTime as JsString")
+    }
+  }
+
+  implicit val DeliveryRequestFormat: RootJsonFormat[DeliveryRequest] = jsonFormat4(DeliveryRequest.apply)
+  implicit val DeliveryResponseFormat: RootJsonFormat[DeliveryResponse] = jsonFormat1(DeliveryResponse.apply)
 }
 
-object Main extends App {
-  import DeliveryJsonProtocol._
 
-  implicit val system = ActorSystem("delivery-system")
-  implicit val materializer = ActorMaterializer()
-  implicit val executionContext = system.dispatcher
+object HttpServerRoutingMinimal extends Directives with JsonSupport{
 
+  def main(args: Array[String]): Unit = {
+
+    implicit val system = ActorSystem(Behaviors.empty, "my-system")
+    // needed for the future flatMap/onComplete in the end
+    implicit val executionContext = system.executionContext
+
+  
   val route =
-    path("deliveryFee") {
+   path("deliveryFee") {
       post {
-        entity(as[DeliveryRequest]) { request =>
+         entity(as[DeliveryRequest]) { request =>
           val calculator = new DeliveryCostCalculator(request.cart_value, request.delivery_distance, request.number_of_items, request.time)
           val deliveryFee = calculator.calculateDeliveryFee()
           complete(DeliveryResponse(deliveryFee))
         }
-      }
     }
+  }
 
-  val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+    val bindingFuture = Http().newServerAt("localhost", 8080).bind(route)
 
-  println(s"Server online at http://localhost:8080/")
-
-  sys.addShutdownHook {
+    println(s"Server now online. Please navigate to http://localhost:8080/hello\nPress RETURN to stop...")
+    StdIn.readLine() // let it run until user presses return
     bindingFuture
-      .flatMap(_.unbind())
-      .onComplete(_ => system.terminate())
+      .flatMap(_.unbind()) // trigger unbinding from the port
+      .onComplete(_ => system.terminate()) // and shutdown when done
   }
 }
 
-// hove to fix Json handling
+// hove to fix Json handling | https://doc.akka.io/docs/akka-http/current/common/json-support.html
 // add try and catch
 // add testing
 // search the syntaxes
+
