@@ -14,6 +14,12 @@ case class DeliveryRequest(cart_value: Int, delivery_distance: Int, number_of_it
 case class DeliveryResponse(delivery_fee: Int)
 
 class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItems: Int, deliveryTime: ZonedDateTime) {
+  
+  // values should be positive
+ if (!(List(cartValue, deliveryDistance, numberOfItems).forall(_ >= 0))) {
+  throw new IllegalArgumentException("Input values include negative integers")
+}
+
   private val SmallOrderThreshold = 1000
   private val BaseDeliveryFee = 200
   private val AdditionalDistanceFee = 100
@@ -40,11 +46,12 @@ class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItem
     } catch {
       case e: Exception =>
         // Handle the exception as per your requirements
-        println(s"Error calculating delivery fee: ${e.getMessage}")
-        0 // Return a default value or handle the error in an appropriate way
+       throw new IllegalArgumentException("Calculation failed:", e)
+        // Return a default value or handle the error in an appropriate way
     }
   }
-private def calculateSmallOrderSurcharge(): Int = Math.max(0, SmallOrderThreshold - cartValue)
+
+  private def calculateSmallOrderSurcharge(): Int = Math.max(0, SmallOrderThreshold - cartValue)
 
 
   private def calculateAdditionalDistanceFee(): Int = {
@@ -64,22 +71,35 @@ private def calculateSmallOrderSurcharge(): Int = Math.max(0, SmallOrderThreshol
   }
 }
 
+
 trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
- implicit object ZonedDateTimeFormat extends JsonFormat[ZonedDateTime] {
+  implicit object ZonedDateTimeFormat extends JsonFormat[ZonedDateTime] {
     private val pattern = "yyyy-MM-dd'T'HH:mm:ssX"
     private val formatter = DateTimeFormatter.ofPattern(pattern)
 
     def write(obj: ZonedDateTime): JsValue = JsString(formatter.format(obj))
-    def read(json: JsValue): ZonedDateTime = json match {
-      case JsString(s) => ZonedDateTime.parse(s, formatter)
-      case _ => deserializationError("Expected ZonedDateTime as JsString")
+
+    def read(json: JsValue): ZonedDateTime = {
+      try {
+        json match {
+          case JsString(s) => ZonedDateTime.parse(s, formatter)
+          case _ => deserializationError("Expected ZonedDateTime as JsString")
+        }
+      } catch {
+        case e: Exception =>
+          // Wrap the exception in IllegalArgumentException with a custom error message
+          throw new IllegalArgumentException("Invalid timestamp", e)
+      }
     }
   }
-
 
   implicit val DeliveryRequestFormat: RootJsonFormat[DeliveryRequest] = jsonFormat4(DeliveryRequest)
   implicit val DeliveryResponseFormat: RootJsonFormat[DeliveryResponse] = jsonFormat1(DeliveryResponse)
 }
+
+
+
+
 
 object HttpServerRoutingMinimal extends Directives with JsonSupport {
 
@@ -90,16 +110,17 @@ object HttpServerRoutingMinimal extends Directives with JsonSupport {
     val route =
       path("deliveryFee") {
         post {
-          entity(as[DeliveryRequest]) { request =>
-            try {
+          try {
+            entity(as[DeliveryRequest]) { request =>
               val calculator = new DeliveryCostCalculator(request.cart_value, request.delivery_distance, request.number_of_items, request.time)
               val deliveryFee = calculator.calculateDeliveryFee()
               complete(DeliveryResponse(deliveryFee))
-            } catch {
-              case e: Exception =>
-                // Handle the exception as per your requirements
-                complete(s"Error processing the request: ${e.getMessage}")
             }
+          } catch {           
+            case t: Throwable =>
+              val errorMessage = s"Internal server error: ${t.getMessage}"
+              println(errorMessage)
+              complete(500, errorMessage)
           }
         }
       }

@@ -1,9 +1,9 @@
 import Dependencies._
 
 ThisBuild / scalaVersion     := "2.13.12"
-ThisBuild / version          := "0.1.0-SNAPSHOT"
-ThisBuild / organization     := "com.example"
-ThisBuild / organizationName := "example"
+// ThisBuild / version          := "0.1.0-SNAPSHOT"
+// ThisBuild / organization     := "com.example"
+// ThisBuild / organizationName := "example"
 
 // mainClass in Compile := Some("Main")
 
@@ -14,7 +14,7 @@ lazy val root = (project in file("."))
     libraryDependencies += munit % Test
   )
 
-resolvers += "Akka library repository".at("https://repo.akka.io/maven")
+// resolvers += "Akka library repository".at("https://repo.akka.io/maven")
 
 
 val AkkaVersion = "2.9.0"
