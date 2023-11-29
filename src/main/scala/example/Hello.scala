@@ -7,14 +7,11 @@ import scala.io.StdIn
 import akka.http.scaladsl.server.Directives
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import spray.json._
-import java.time.{DayOfWeek, ZonedDateTime}
+import java.time.{ DayOfWeek, ZonedDateTime }
 import java.time.format.DateTimeFormatter
-
 
 case class DeliveryRequest(cart_value: Int, delivery_distance: Int, number_of_items: Int, time: ZonedDateTime)
 case class DeliveryResponse(delivery_fee: Int)
-
-
 
 class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItems: Int, deliveryTime: ZonedDateTime) {
   private val SmallOrderThreshold = 1000
@@ -30,18 +27,25 @@ class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItem
   private val RushHourEnd = 19
 
   def calculateDeliveryFee(): Int = {
-    val smallOrderSurcharge = calculateSmallOrderSurcharge()
-    val baseFee = BaseDeliveryFee + smallOrderSurcharge
-    val additionalDistanceFee = calculateAdditionalDistanceFee()
-    val bulkSurcharge = calculateBulkSurcharge()
-    val bulkFee = if (numberOfItems > BulkFeeThreshold) 120 else 0
-    val totalFee = baseFee + additionalDistanceFee + bulkSurcharge + bulkFee
+    try {
+      val smallOrderSurcharge = calculateSmallOrderSurcharge()
+      val baseFee = BaseDeliveryFee + smallOrderSurcharge
+      val additionalDistanceFee = calculateAdditionalDistanceFee()
+      val bulkSurcharge = calculateBulkSurcharge()
+      val bulkFee = if (numberOfItems > BulkFeeThreshold) 120 else 0
+      val totalFee = baseFee + additionalDistanceFee + bulkSurcharge + bulkFee
 
-    val finalFee = if (cartValue >= FreeDeliveryThreshold) 0 else Math.min(MaxDeliveryFee, totalFee)
-    if (isFridayRushHour()) (finalFee * RushHourMultiplier).toInt else finalFee
+      val finalFee = if (cartValue >= FreeDeliveryThreshold) 0 else Math.min(MaxDeliveryFee, totalFee)
+      if (isFridayRushHour()) (finalFee * RushHourMultiplier).toInt else finalFee
+    } catch {
+      case e: Exception =>
+        // Handle the exception as per your requirements
+        println(s"Error calculating delivery fee: ${e.getMessage}")
+        0 // Return a default value or handle the error in an appropriate way
+    }
   }
+private def calculateSmallOrderSurcharge(): Int = Math.max(0, SmallOrderThreshold - cartValue)
 
-  private def calculateSmallOrderSurcharge(): Int = Math.max(0, SmallOrderThreshold - cartValue)
 
   private def calculateAdditionalDistanceFee(): Int = {
     val distanceAboveThreshold = Math.max(0, deliveryDistance - 1000)
@@ -49,7 +53,9 @@ class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItem
     BaseDeliveryFee + additionalDistanceBlocks * AdditionalDistanceFee
   }
 
+
   private def calculateBulkSurcharge(): Int = Math.max(0, numberOfItems - 4) * BulkItemSurcharge
+
 
   private def isFridayRushHour(): Boolean = {
     val isFriday = deliveryTime.getDayOfWeek == Friday
@@ -58,10 +64,8 @@ class DeliveryCostCalculator(cartValue: Int, deliveryDistance: Int, numberOfItem
   }
 }
 
-
-
 trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
-  implicit object ZonedDateTimeFormat extends JsonFormat[ZonedDateTime] {
+ implicit object ZonedDateTimeFormat extends JsonFormat[ZonedDateTime] {
     private val pattern = "yyyy-MM-dd'T'HH:mm:ssX"
     private val formatter = DateTimeFormatter.ofPattern(pattern)
 
@@ -77,8 +81,6 @@ trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
   implicit val DeliveryResponseFormat: RootJsonFormat[DeliveryResponse] = jsonFormat1(DeliveryResponse)
 }
 
-
-
 object HttpServerRoutingMinimal extends Directives with JsonSupport {
 
   def main(args: Array[String]): Unit = {
@@ -89,16 +91,22 @@ object HttpServerRoutingMinimal extends Directives with JsonSupport {
       path("deliveryFee") {
         post {
           entity(as[DeliveryRequest]) { request =>
-            val calculator = new DeliveryCostCalculator(request.cart_value, request.delivery_distance, request.number_of_items, request.time)
-            val deliveryFee = calculator.calculateDeliveryFee()
-            complete(DeliveryResponse(deliveryFee))
+            try {
+              val calculator = new DeliveryCostCalculator(request.cart_value, request.delivery_distance, request.number_of_items, request.time)
+              val deliveryFee = calculator.calculateDeliveryFee()
+              complete(DeliveryResponse(deliveryFee))
+            } catch {
+              case e: Exception =>
+                // Handle the exception as per your requirements
+                complete(s"Error processing the request: ${e.getMessage}")
+            }
           }
         }
       }
 
     val bindingFuture = Http().newServerAt("localhost", 8080).bind(route)
 
-    println(s"Server now online. Please navigate to http://localhost:8080/hello\nPress RETURN to stop...")
+    println(s"Server is running")
     StdIn.readLine()
     bindingFuture.flatMap(_.unbind()).onComplete(_ => system.terminate())
   }
